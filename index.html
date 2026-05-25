@@ -163,6 +163,19 @@
 </div>
 
 <script>
+(function() {
+  const correct = "ILov3Lamp!89";
+  let stored = sessionStorage.getItem('pw');
+  if (stored !== correct) {
+    let input = prompt("Password:");
+    if (input !== correct) {
+      document.body.innerHTML = '<p style="color:#fff;text-align:center;margin-top:40vh;font-size:1.2rem">Wrong password.</p>';
+      throw new Error('wrong password');
+    }
+    sessionStorage.setItem('pw', correct);
+  }
+})();
+
 const UART_SERVICE = '6e400001-b5b3-f393-e0a9-e50e24dcca9e';
 const RX_CHAR      = '6e400002-b5b3-f393-e0a9-e50e24dcca9e';
 
