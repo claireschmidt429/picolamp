@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PicoLamp</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100dvh;
+    padding: 24px 20px 48px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: #1e1e1e;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #888;
+    margin-bottom: 12px;
+  }
+  /* Connect */
+  #connectBtn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: #0080ff;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  #connectBtn:disabled { opacity: .5; cursor: default; }
+  #connectBtn.connected { background: #1e1e1e; border: 1px solid #ff3030; color: #ff3030; }
+  .status-row { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #20c060; flex-shrink: 0; }
+  .status-text { color: #20c060; font-weight: 600; flex: 1; }
+  /* Modes */
+  .mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .mode-btn {
+    padding: 12px;
+    border-radius: 10px;
+    border: 1.5px solid var(--c);
+    background: transparent;
+    color: #bbb;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .mode-btn.active { background: var(--c); color: #fff; }
+  /* Sliders */
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  input[type=range] {
+    flex: 1;
+    height: 4px;
+    appearance: none;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--thumb, #e8a000);
+    cursor: pointer;
+  }
+  .slider-val { min-width: 36px; text-align: right; color: #aaa; font-size: 14px; font-weight: 600; }
+  /* Colors */
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .color-btn {
+    border: none;
+    border-radius: 10px;
+    padding: 14px 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 3px #0008;
+    transition: transform .1s;
+  }
+  .color-btn:active { transform: scale(.93); }
+  /* Controls hidden until connected */
+  #controls { display: none; }
+  #controls.visible { display: block; }
+</style>
+</head>
+<body>
+
+<h1>PicoLamp</h1>
+
+<div class="card" id="connectCard">
+  <div id="disconnectedUI">
+    <button id="connectBtn" onclick="connect()">Connect to PicoLamp</button>
+  </div>
+  <div id="connectedUI" style="display:none">
+    <div class="status-row">
+      <div class="dot"></div>
+      <span class="status-text">Connected</span>
+      <button id="connectBtn" class="connected" onclick="disconnect()" style="width:auto;padding:6px 14px;font-size:13px;">Disconnect</button>
+    </div>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="card">
+    <div class="label">Mode</div>
+    <div class="mode-grid" id="modeGrid"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">Brightness — <span id="brightVal">100</span>%</div>
+    <div class="slider-row">
+      <input type="range" id="bright" min="0" max="100" value="100"
+        style="background: linear-gradient(to right, #e8a000 100%, #444 100%); --thumb:#e8a000"
+        oninput="onBright(this)" onchange="send('BRIGHT:'+this.value)">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Speed — <span id="speedVal">5</span></div>
+    <div class="slider-row">
+      <input type="range" id="speed" min="1" max="10" value="5"
+        style="background: linear-gradient(to right, #0080ff 44%, #444 44%); --thumb:#0080ff"
+        oninput="onSpeed(this)" onchange="send('SPEED:'+this.value)">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Color</div>
+    <div class="color-grid" id="colorGrid"></div>
+  </div>
+</div>
+
+<script>
+const UART_SERVICE = '6e400001-b5b3-f393-e0a9-e50e24dcca9e';
+const RX_CHAR      = '6e400002-b5b3-f393-e0a9-e50e24dcca9e';
+
+const MODES = [
+  { id:0, label:'Off',       color:'#555'    },
+  { id:1, label:'Solid',     color:'#e8a000' },
+  { id:2, label:'Slow Fade', color:'#0080ff' },
+  { id:3, label:'Fast Fade', color:'#00c8ff' },
+  { id:4, label:'Pulse',     color:'#a020f0' },
+  { id:5, label:'Strobe',    color:'#ff3030' },
+  { id:6, label:'Rainbow',   color:'#ff8c00' },
+  { id:7, label:'Dim Cycle', color:'#20c060' },
+];
+
+const COLORS = [
+  { label:'White',  r:255, g:255, b:255 },
+  { label:'Red',    r:255, g:0,   b:0   },
+  { label:'Green',  r:0,   g:255, b:0   },
+  { label:'Blue',   r:0,   g:0,   b:255 },
+  { label:'Warm',   r:255, g:180, b:60  },
+  { label:'Cyan',   r:0,   g:255, b:255 },
+  { label:'Pink',   r:255, g:0,   b:128 },
+  { label:'Purple', r:160, g:32,  b:240 },
+];
+
+let rxChar = null;
+let currentMode = 0;
+
+// Build mode buttons
+const modeGrid = document.getElementById('modeGrid');
+MODES.forEach(m => {
+  const btn = document.createElement('button');
+  btn.className = 'mode-btn' + (m.id === 0 ? ' active' : '');
+  btn.style.setProperty('--c', m.color);
+  btn.textContent = m.label;
+  btn.id = 'mode' + m.id;
+  btn.onclick = () => {
+    send('MODE:' + m.id);
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = m.id;
+  };
+  modeGrid.appendChild(btn);
+});
+
+// Build color buttons
+const colorGrid = document.getElementById('colorGrid');
+COLORS.forEach(c => {
+  const btn = document.createElement('button');
+  btn.className = 'color-btn';
+  btn.style.background = `rgb(${c.r},${c.g},${c.b})`;
+  btn.textContent = c.label;
+  btn.onclick = () => send(`COLOR:${c.r},${c.g},${c.b}`);
+  colorGrid.appendChild(btn);
+});
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    alert('Web Bluetooth not supported.\nAndroid: use Chrome.\niPhone: use the Bluefy app.');
+    return;
+  }
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'PicoLamp' }],
+      optionalServices: [UART_SERVICE],
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnect);
+    const server  = await device.gatt.connect();
+    const service = await server.getPrimaryService(UART_SERVICE);
+    rxChar = await service.getCharacteristic(RX_CHAR);
+    showConnected();
+  } catch (e) {
+    if (e.name !== 'NotFoundError') alert('Connection failed: ' + e.message);
+  }
+}
+
+function disconnect() {
+  rxChar?.service?.device?.gatt?.disconnect();
+}
+
+function onDisconnect() {
+  rxChar = null;
+  showDisconnected();
+}
+
+function showConnected() {
+  document.getElementById('disconnectedUI').style.display = 'none';
+  document.getElementById('connectedUI').style.display = 'block';
+  document.getElementById('controls').classList.add('visible');
+}
+
+function showDisconnected() {
+  document.getElementById('disconnectedUI').style.display = 'block';
+  document.getElementById('connectedUI').style.display = 'none';
+  document.getElementById('controls').classList.remove('visible');
+}
+
+function send(cmd) {
+  if (!rxChar) return;
+  const enc = new TextEncoder().encode(cmd + '\n');
+  rxChar.writeValueWithResponse(enc).catch(e => alert('Send error: ' + e.message));
+}
+
+function onBright(el) {
+  document.getElementById('brightVal').textContent = el.value;
+  const pct = el.value + '%';
+  el.style.background = `linear-gradient(to right, #e8a000 ${pct}, #444 ${pct})`;
+}
+
+function onSpeed(el) {
+  document.getElementById('speedVal').textContent = el.value;
+  const pct = ((el.value - 1) / 9 * 100) + '%';
+  el.style.background = `linear-gradient(to right, #0080ff ${pct}, #444 ${pct})`;
+}
+</script>
+</body>
+</html>
