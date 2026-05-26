@@ -276,7 +276,9 @@ function showDisconnected() {
 function send(cmd) {
   if (!rxChar) return;
   const enc = new TextEncoder().encode(cmd + '\n');
-  rxChar.writeValueWithResponse(enc).catch(e => alert('Send error: ' + e.message));
+  rxChar.writeValueWithoutResponse(enc).catch(() =>
+    rxChar.writeValueWithResponse(enc).catch(e => alert('Send error: ' + e.message))
+  );
 }
 
 function onBright(el) {
